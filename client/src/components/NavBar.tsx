@@ -31,8 +31,8 @@ const NavBar: React.FC = () => {
     <header className={`fixed w-full bg-white shadow-md z-50 transition-all duration-300 ${isScrolled ? 'py-2' : 'py-3'}`} id="main-header">
       <div className="container mx-auto px-4 flex justify-between items-center">
         <Link href="/" className="flex items-center">
-          <div className="text-primary font-bold text-2xl">
-            <span className="text-secondary">AXES</span> TRADE
+          <div className="font-bold text-2xl">
+            <span className="text-brandRed">AXES</span> <span className="text-brandBlue">TRADE</span>
           </div>
         </Link>
         
