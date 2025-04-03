@@ -1,0 +1,68 @@
+Titre du Projet : Site Web Vitrine pour Axes Trade
+
+Description :
+Créer un site web vitrine moderne pour une entreprise spécialisée dans la vente d’imprimantes, en utilisant Vue.js pour le frontend et, si besoin, Java Spring Boot pour le backend. Les informations de l’entreprise sont à récupérer et intégrer depuis ce lien.
+
+Spécifications Techniques et Fonctionnelles :
+
+Présentation et Navigation :
+
+Menus Paramétrables : Implémenter plusieurs menus (Accueil, Produits, Services, À Propos, Contact) dont le contenu peut être facilement modifié via un système de configuration ou une interface d’administration.
+
+Design Responsive : Le site doit être entièrement responsive, garantissant une expérience optimale sur mobile, tablette et desktop.
+
+Animations et Interactions : Utiliser des animations subtiles pour améliorer l’expérience utilisateur (parallax, transitions de page, effets hover sur les boutons).
+
+Contenu et Référencement (SEO) :
+
+Contenu de Qualité : Intégrer les informations de l’entreprise (description, historique, valeurs, etc.) depuis la source fournie et les enrichir avec des descriptions détaillées des produits.
+
+Optimisation SEO :
+
+Balises méta (title, description, keywords) pour chaque page.
+
+URL propres et structurées.
+
+Utilisation de balises sémantiques (header, article, section, footer).
+
+Plan du site (sitemap.xml) et fichier robots.txt.
+
+Intégration d’un blog ou d’une section actualités pour dynamiser le contenu.
+
+Accessibilité : Veiller à ce que le site respecte les standards d’accessibilité (WCAG) pour toucher un public plus large.
+
+Fonctionnalités de Contact :
+
+Formulaire de Contact : Un formulaire intuitif pour envoyer des messages directement depuis le site.
+
+Liens Directs : Boutons cliquables permettant de contacter l’entreprise via WhatsApp, d’envoyer un e-mail (mailto:) ou de lancer un appel téléphonique.
+
+Chat en Direct (optionnel) : Possibilité d’intégrer un widget de chat pour répondre instantanément aux questions des visiteurs.
+
+Technologies et Architecture :
+
+Frontend :
+
+Utilisation de Vue.js avec un design modulaire et componentisé.
+
+Gestion de l’état avec Vuex (ou autre solution) si nécessaire pour des menus et contenus dynamiques.
+
+Backend (si nécessaire) :
+
+Java Spring Boot pour les API REST si vous devez gérer des données dynamiques, un CMS personnalisé ou une interface d’administration.
+
+Intégration d’une base de données (MySQL, PostgreSQL ou autre) pour stocker les contenus paramétrables et les demandes de contact.
+
+Déploiement et CI/CD : Configurer le projet pour qu’il soit facilement déployable sur Replit, avec des workflows CI/CD automatisés pour les mises à jour.
+
+Créativité et Personnalisation :
+
+Thème Visuel : Choisir un thème moderne et professionnel qui évoque la fiabilité et la technologie. Utiliser des images de haute qualité d’imprimantes et d’environnements de bureau.
+
+Personnalisation Dynamique : Permettre aux administrateurs de modifier le contenu des menus et sections directement via une interface utilisateur simple.
+
+Témoignages et Références : Ajouter une section de témoignages clients et des références pour renforcer la crédibilité de l’entreprise.
+
+Intégration Réseaux Sociaux : Lier les profils sociaux de l’entreprise pour augmenter la visibilité et l’engagement.
+
+Ce prompt vous offre une base complète et créative pour réaliser un site web vitrine moderne, optimisé pour le référencement et orienté vers une expérience utilisateur de qualité. Vous pouvez adapter et enrichir ce prompt en fonction des besoins spécifiques de votre projet sur Replit.
