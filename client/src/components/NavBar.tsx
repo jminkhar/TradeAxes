@@ -32,7 +32,7 @@ const NavBar: React.FC = () => {
       <div className="container mx-auto px-4 flex justify-between items-center">
         <Link href="/" className="flex items-center">
           <div className="font-bold text-2xl">
-            <span className="text-brandRed">AXES</span> <span className="text-brandBlue">TRADE</span>
+            <span style={{color: "#D92121"}}>AXES</span> <span style={{color: "#0A4D94"}}>TRADE</span>
           </div>
         </Link>
         
