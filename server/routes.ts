@@ -511,13 +511,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else if (data.type === 'admin_get_sessions') {
           // Vérifier que le client est un administrateur
           if (thisClient && thisClient.type === 'admin') {
+            console.log('Admin client demande les sessions de chat');
             // Récupérer toutes les sessions de chat actives
             // Pour chaque session, récupérer les messages et les informations client
             const allSessionIds = await storage.getActiveChatSessions();
+            console.log('Sessions actives trouvées:', allSessionIds);
             const sessions = [];
             
             for (const sessionId of allSessionIds) {
+              console.log(`Récupération des messages pour la session: ${sessionId}`);
               const messages = await storage.getChatMessagesBySession(sessionId);
+              console.log(`Nombre de messages trouvés: ${messages.length}`);
               
               // Extraire les informations client à partir des messages
               let customerInfo = {
@@ -528,7 +532,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               };
               
               // Chercher le dernier message contenant des infos client
-              for (const msg of messages.reverse()) {
+              const messagesReversed = [...messages].reverse();
+              for (const msg of messagesReversed) {
                 if (msg.metadata && typeof msg.metadata === 'object') {
                   const metadata = msg.metadata as Record<string, any>;
                   if (metadata.customerInfo) {
@@ -538,6 +543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       service: string;
                       phone: string;
                     };
+                    console.log(`Infos client trouvées pour ${sessionId}:`, customerInfo);
                     break;
                   }
                 }
@@ -560,12 +566,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
             }
             
+            console.log(`Envoi de ${sessions.length} sessions à l'admin`);
+            
             // Envoyer la liste des sessions à l'admin
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({
                 type: 'chat_sessions',
                 sessions
               }));
+            } else {
+              console.log('WebSocket non ouvert, impossible d\'envoyer les sessions');
             }
           }
         } else if (data.type === 'chat_message') {
