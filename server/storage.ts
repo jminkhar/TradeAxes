@@ -46,6 +46,7 @@ export interface IStorage {
   getChatMessagesBySession(sessionId: string): Promise<ChatMessage[]>;
   getUnreadChatMessageCount(): Promise<number>;
   markChatMessagesAsRead(sessionId: string): Promise<void>;
+  getActiveChatSessions(): Promise<string[]>;
 }
 
 export class PostgresStorage implements IStorage {
@@ -178,6 +179,16 @@ export class PostgresStorage implements IStorage {
           eq(chatMessages.sender, 'user')
         )
       );
+  }
+  
+  async getActiveChatSessions(): Promise<string[]> {
+    // Obtenir tous les sessionId uniques de la table des messages
+    const result = await db
+      .selectDistinct({ sessionId: chatMessages.sessionId })
+      .from(chatMessages)
+      .orderBy(desc(chatMessages.timestamp));
+    
+    return result.map(row => row.sessionId);
   }
 }
 
@@ -389,7 +400,8 @@ export class MemStorage implements IStorage {
       sender: message.sender,
       message: message.message,
       timestamp: now,
-      read: message.read ?? false
+      read: message.read ?? false,
+      metadata: message.metadata ?? null
     };
     this.chatMessagesList.push(chatMessage);
     return chatMessage;
@@ -410,6 +422,15 @@ export class MemStorage implements IStorage {
       }
       return msg;
     });
+  }
+  
+  async getActiveChatSessions(): Promise<string[]> {
+    // Obtenir tous les sessionId uniques de la liste des messages
+    const sessionIds = new Set<string>();
+    for (const msg of this.chatMessagesList) {
+      sessionIds.add(msg.sessionId);
+    }
+    return Array.from(sessionIds);
   }
 }
 

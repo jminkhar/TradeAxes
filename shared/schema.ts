@@ -126,10 +126,11 @@ export type InsertPageView = z.infer<typeof insertPageViewSchema>;
 export const chatMessages = pgTable("chat_messages", {
   id: serial("id").primaryKey(),
   sessionId: text("session_id").notNull(),
-  sender: text("sender").notNull(), // 'user' or 'admin'
+  sender: text("sender").notNull(), // 'user', 'admin', or 'bot'
   message: text("message").notNull(),
   timestamp: timestamp("timestamp").defaultNow().notNull(),
-  read: boolean("read").default(false).notNull()
+  read: boolean("read").default(false).notNull(),
+  metadata: jsonb("metadata") // Pour stocker des infos supplémentaires comme customerInfo
 });
 
 export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({

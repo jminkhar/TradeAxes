@@ -437,13 +437,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Setup WebSocket server for chat functionality
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
   
-  // Store active connections
-  const clients: WebSocket[] = [];
+  // Store active connections with client type info
+  interface SocketClient {
+    socket: WebSocket;
+    type: 'user' | 'admin';
+    sessionId?: string;
+  }
   
-  wss.on('connection', (ws) => {
-    clients.push(ws);
+  const clients: SocketClient[] = [];
+  
+  wss.on('connection', (ws, req) => {
+    // Par défaut, les connexions sont considérées comme des clients
+    const client: SocketClient = {
+      socket: ws,
+      type: 'user'
+    };
     
-    // Send initial unread message count
+    clients.push(client);
+    
+    // Send initial unread message count for all clients
     const sendUnreadCount = async () => {
       try {
         const count = await storage.getUnreadChatMessageCount();
@@ -459,27 +471,135 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ws.on('message', async (message) => {
       try {
         const data = JSON.parse(message.toString());
+        const thisClient = clients.find(c => c.socket === ws);
         
-        if (data.type === 'chat_message') {
+        // Identifier le type de client (admin ou utilisateur)
+        if (data.type === 'identify_client') {
+          if (data.clientType === 'admin') {
+            // Vérifier si l'utilisateur est autorisé comme admin
+            if (data.adminToken === 'admin_secret_token' || data.adminToken === 'authenticated_admin') {
+              if (thisClient) {
+                thisClient.type = 'admin';
+                console.log('Admin client identified and authenticated');
+                
+                // Envoyer la liste des sessions actives à l'administrateur
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({
+                    type: 'admin_authenticated',
+                    success: true
+                  }));
+                }
+              }
+            } else {
+              console.log('Admin authentication failed');
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                  type: 'admin_authenticated',
+                  success: false,
+                  message: 'Authentication failed'
+                }));
+              }
+            }
+          } else if (data.clientType === 'user') {
+            // Assigner une session unique au client utilisateur
+            if (thisClient) {
+              thisClient.type = 'user';
+              thisClient.sessionId = data.sessionId;
+              console.log(`User client identified with session: ${data.sessionId}`);
+            }
+          }
+        } else if (data.type === 'admin_get_sessions') {
+          // Vérifier que le client est un administrateur
+          if (thisClient && thisClient.type === 'admin') {
+            // Récupérer toutes les sessions de chat actives
+            // Pour chaque session, récupérer les messages et les informations client
+            const allSessionIds = await storage.getActiveChatSessions();
+            const sessions = [];
+            
+            for (const sessionId of allSessionIds) {
+              const messages = await storage.getChatMessagesBySession(sessionId);
+              
+              // Extraire les informations client à partir des messages
+              let customerInfo = {
+                name: 'Client',
+                company: '',
+                service: '',
+                phone: ''
+              };
+              
+              // Chercher le dernier message contenant des infos client
+              for (const msg of messages.reverse()) {
+                if (msg.metadata && typeof msg.metadata === 'object') {
+                  const metadata = msg.metadata as Record<string, any>;
+                  if (metadata.customerInfo) {
+                    customerInfo = metadata.customerInfo as {
+                      name: string;
+                      company: string;
+                      service: string;
+                      phone: string;
+                    };
+                    break;
+                  }
+                }
+              }
+              
+              // Calculer le nombre de messages non lus
+              const unreadCount = messages.filter(msg => !msg.read && msg.sender === 'user').length;
+              
+              // Obtenir l'heure du dernier message
+              const lastActivity = messages.length > 0 
+                ? messages[messages.length - 1].timestamp 
+                : new Date().toISOString();
+              
+              sessions.push({
+                sessionId,
+                customerInfo,
+                messages,
+                unreadCount,
+                lastActivity
+              });
+            }
+            
+            // Envoyer la liste des sessions à l'admin
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'chat_sessions',
+                sessions
+              }));
+            }
+          }
+        } else if (data.type === 'chat_message') {
           // Validate and store chat message
           const validatedData = insertChatMessageSchema.parse(data.payload);
+          
+          // Ajout de la sessionId si c'est un client utilisateur
+          if (thisClient && thisClient.type === 'user' && thisClient.sessionId) {
+            if (!validatedData.sessionId) {
+              validatedData.sessionId = thisClient.sessionId;
+            }
+          }
+          
           const savedMessage = await storage.createChatMessage(validatedData);
           
-          // Broadcast to all connected clients
+          // Broadcast to relevant clients
           clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify({
-                type: 'chat_message',
-                message: savedMessage
-              }));
+            if (client.socket.readyState === WebSocket.OPEN) {
+              // Envoyer à l'admin ou au client de la même session
+              if (client.type === 'admin' || 
+                  (client.sessionId === savedMessage.sessionId)) {
+                client.socket.send(JSON.stringify({
+                  type: 'chat_message',
+                  message: savedMessage
+                }));
+              }
             }
           });
           
-          // Update unread count for all clients
+          // Update unread count for all admin clients
           const newCount = await storage.getUnreadChatMessageCount();
           clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify({
+            if (client.type === 'admin' && client.socket.readyState === WebSocket.OPEN) {
+              client.socket.send(JSON.stringify({
                 type: 'unread_count',
                 count: newCount
               }));
@@ -489,11 +609,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Mark messages as read
           await storage.markChatMessagesAsRead(data.sessionId);
           
-          // Update unread count for all clients
+          // Update unread count for all admin clients
           const newCount = await storage.getUnreadChatMessageCount();
           clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify({
+            if (client.type === 'admin' && client.socket.readyState === WebSocket.OPEN) {
+              client.socket.send(JSON.stringify({
                 type: 'unread_count',
                 count: newCount
               }));
@@ -512,24 +632,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Un client demande à parler à un conseiller en direct
           console.log('Client demande un chat en direct:', data.payload.customerInfo);
           
+          // Enregistrer la demande comme un message avec les métadonnées
+          const customerInfo = data.payload.customerInfo;
+          const sessionId = data.payload.sessionId || (thisClient?.sessionId || `session_${Date.now()}`);
+          
+          // Créer une sessionId si nécessaire
+          if (thisClient && !thisClient.sessionId) {
+            thisClient.sessionId = sessionId;
+          }
+          
+          // Enregistrer la demande de chat en direct dans la base de données
+          const chatMessage = await storage.createChatMessage({
+            sessionId,
+            sender: 'bot',
+            message: `Demande de chat en direct - ${customerInfo.name} de ${customerInfo.company} concernant ${customerInfo.service}`,
+            read: false,
+            metadata: {
+              type: 'live_chat_request',
+              customerInfo,
+              timestamp: new Date().toISOString()
+            }
+          });
+          
           // Notifier tous les administrateurs connectés
           const adminNotification = JSON.stringify({
             type: 'admin_notification',
             notification: {
               type: 'live_chat_request',
-              message: `${data.payload.customerInfo.name} de ${data.payload.customerInfo.company} demande un chat en direct concernant: ${data.payload.customerInfo.service}. Téléphone: ${data.payload.customerInfo.phone}`,
-              sessionId: data.payload.sessionId,
-              customerInfo: data.payload.customerInfo,
+              message: `${customerInfo.name} de ${customerInfo.company} demande un chat en direct concernant: ${customerInfo.service}. Téléphone: ${customerInfo.phone}`,
+              sessionId,
+              customerInfo,
               timestamp: new Date().toISOString()
             }
           });
           
-          // Envoyer la notification à tous les clients (l'interface admin filtrera)
+          // Envoyer la notification à tous les clients admin
           clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(adminNotification);
+            if (client.type === 'admin' && client.socket.readyState === WebSocket.OPEN) {
+              client.socket.send(adminNotification);
             }
           });
+          
+          // Envoyer un accusé de réception au client qui a fait la demande
+          if (thisClient && thisClient.socket.readyState === WebSocket.OPEN) {
+            thisClient.socket.send(JSON.stringify({
+              type: 'live_chat_request_ack',
+              success: true,
+              message: 'Votre demande a été transmise à notre équipe. Un conseiller va vous répondre très prochainement.',
+              sessionId
+            }));
+          }
         }
       } catch (error) {
         console.error('Error processing message:', error);
@@ -543,7 +695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
     
     ws.on('close', () => {
-      const index = clients.indexOf(ws);
+      const index = clients.findIndex(client => client.socket === ws);
       if (index !== -1) {
         clients.splice(index, 1);
       }
