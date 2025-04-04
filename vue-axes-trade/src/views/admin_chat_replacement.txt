@@ -1,0 +1,10 @@
+        <div v-if="activeTab === 'chat'">
+          <ChatPanel 
+            :chatSessions="chatSessions" 
+            :selectedChatSession="selectedChatSession" 
+            :wsConnected="wsConnected"
+            @update:selectedChatSession="selectChatSession"
+            @send-message="handleSendMessage"
+            @refresh-connection="setupWebSocketConnection"
+          />
+        </div>

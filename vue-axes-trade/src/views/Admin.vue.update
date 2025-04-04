@@ -1,0 +1,20 @@
+// Ajouter le handler pour gérer le message du chat
+const handleSendMessage = (message: string, sessionId: string) => {
+  if (!wsConnection.value || wsConnection.value.readyState !== WebSocket.OPEN) {
+    return
+  }
+  
+  try {
+    wsConnection.value.send(JSON.stringify({
+      type: 'chat_message',
+      payload: {
+        sessionId: sessionId,
+        sender: 'admin',
+        message: message,
+        read: true
+      }
+    }))
+  } catch (error) {
+    console.error('Error sending admin message:', error)
+  }
+}

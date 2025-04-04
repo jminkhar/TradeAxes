@@ -1,7 +1,7 @@
-import { ref, reactive, onMounted, onUnmounted, watch, computed } from 'vue'
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import ChatPanel from "./ChatPanel.vue"
 import { useAuthStore } from '../stores/auth'
 
 // Types pour le système de chat
@@ -30,12 +30,11 @@ interface ChatSession {
 }
 
 const authStore = useAuthStore()
-const router = useRouter()
-const activeTab = ref('dashboard')
 const wsConnection = ref<WebSocket | null>(null)
 const wsConnected = ref(false)
 const chatSessions = ref<ChatSession[]>([])
 const selectedChatSession = ref<string | null>(null)
+const activeTab = ref('dashboard')
 const adminChatMessage = ref('')
 
 // Variables du formulaire de connexion
@@ -43,12 +42,12 @@ const username = ref('')
 const password = ref('')
 const errorMessage = ref('')
 
-// Fonction de connexion
 // Propriété calculée pour obtenir la session sélectionnée
 const selectedSession = computed(() => {
   return chatSessions.value.find(session => session.sessionId === selectedChatSession.value)
 })
 
+// Fonction de connexion
 const login = async () => {
   if (!username.value || !password.value) {
     errorMessage.value = 'Veuillez remplir tous les champs'
@@ -65,24 +64,7 @@ const login = async () => {
   }
 }
 
-// Changement d'onglet
-const setActiveTab = (tab: string) => {
-  activeTab.value = tab
-  
-  // Si on passe à l'onglet de chat, établir la connexion WebSocket
-  if (tab === 'chat' && !wsConnection.value) {
-    setupWebSocketConnection()
-  }
-}
-const router = useRouter()
-const activeTab = ref('dashboard')
-const wsConnection = ref<WebSocket | null>(null)
-const wsConnected = ref(false)
-const chatSessions = ref<ChatSession[]>([])
-const selectedChatSession = ref<string | null>(null)
-const adminChatMessage = ref('')
-
-// Changement d'onglet
+// Changer d'onglet
 const setActiveTab = (tab: string) => {
   activeTab.value = tab
   
@@ -92,7 +74,42 @@ const setActiveTab = (tab: string) => {
   }
 }
 
-// Établir la connexion WebSocket
+// Gestion des messages de chat
+const handleChatMessage = (message: ChatMessage) => {
+  const sessionIndex = chatSessions.value.findIndex(s => s.sessionId === message.sessionId)
+  
+  if (sessionIndex >= 0) {
+    // Mise à jour d'une session existante
+    const session = { ...chatSessions.value[sessionIndex] }
+    
+    // Ajouter le message à la session
+    session.messages = [...(session.messages || []), message]
+    session.lastActivity = message.timestamp
+    
+    // Mettre à jour le compteur de messages non lus si ce n'est pas la session actuellement sélectionnée
+    if (selectedChatSession.value !== message.sessionId && message.sender === 'user') {
+      session.unreadCount = (session.unreadCount || 0) + 1
+    }
+    
+    // Mettre à jour la session dans le tableau
+    chatSessions.value.splice(sessionIndex, 1, session)
+  } else if (message.sender === 'user') {
+    // Nouvelle session
+    chatSessions.value.push({
+      sessionId: message.sessionId,
+      customerInfo: {
+        name: 'Client',
+        company: '',
+        service: '',
+        phone: ''
+      },
+      lastActivity: message.timestamp,
+      unreadCount: 1,
+      messages: [message]
+    })
+  }
+}
+
 // Établir la connexion WebSocket
 const setupWebSocketConnection = () => {
   if (wsConnection.value && wsConnection.value.readyState === WebSocket.OPEN) {
@@ -113,7 +130,14 @@ const setupWebSocketConnection = () => {
       console.log('Admin WebSocket connection established')
       wsConnected.value = true
       
-      // Demander toutes les sessions actives
+      // S'identifier comme admin d'abord
+      socket.send(JSON.stringify({
+        type: 'identify_client',
+        clientType: 'admin',
+        adminToken: 'authenticated_admin'
+      }))
+      
+      // Ensuite demander toutes les sessions actives
       socket.send(JSON.stringify({
         type: 'admin_get_sessions'
       }))
@@ -144,88 +168,8 @@ const setupWebSocketConnection = () => {
       wsConnection.value = null
     }
   } catch (error) {
-    console.error('Failed to establish WebSocket connection:', error)
+    console.error('WebSocket connection error:', error)
     wsConnected.value = false
-    wsConnection.value = null
-  }
-}
-  
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${protocol}//${window.location.host}/ws`
-  
-  const socket = new WebSocket(wsUrl)
-  wsConnection.value = socket
-  
-  socket.onopen = () => {
-    console.log('Admin WebSocket connection established')
-    wsConnected.value = true
-    
-    // Demander toutes les sessions actives
-    socket.send(JSON.stringify({
-      type: 'admin_get_sessions'
-    }))
-  }
-  
-  socket.onmessage = (event) => {
-    const data = JSON.parse(event.data)
-    
-    if (data.type === 'chat_message') {
-      // Ajouter le message à la session correspondante
-      handleChatMessage(data.message)
-    } else if (data.type === 'chat_sessions') {
-      // Réception de toutes les sessions actives
-      chatSessions.value = data.sessions
-    } else if (data.type === 'admin_notification') {
-      handleAdminNotification(data.notification)
-    }
-  }
-  
-  socket.onerror = (error) => {
-    console.error('Admin WebSocket error:', error)
-    wsConnected.value = false
-  }
-  
-  socket.onclose = () => {
-    console.log('Admin WebSocket connection closed')
-    wsConnected.value = false
-    wsConnection.value = null
-  }
-}
-
-// Gestion des messages de chat
-const handleChatMessage = (message: ChatMessage) => {
-  // Trouver la session correspondante
-  const sessionIndex = chatSessions.value.findIndex(s => s.sessionId === message.sessionId)
-  
-  if (sessionIndex >= 0) {
-    // Mise à jour d'une session existante
-    const session = { ...chatSessions.value[sessionIndex] }
-    
-    // Ajouter le message
-    session.messages.push(message)
-    session.lastActivity = message.timestamp
-    
-    // Mettre à jour le compteur de messages non lus si ce n'est pas la session actuellement sélectionnée
-    if (selectedChatSession.value !== message.sessionId && message.sender === 'user') {
-      session.unreadCount = (session.unreadCount || 0) + 1
-    }
-    
-    // Mettre à jour la session dans le tableau
-    chatSessions.value.splice(sessionIndex, 1, session)
-  } else if (message.sender === 'user') {
-    // Nouvelle session
-    chatSessions.value.push({
-      sessionId: message.sessionId,
-      customerInfo: {
-        name: 'Client',
-        company: '',
-        service: '',
-        phone: ''
-      },
-      lastActivity: message.timestamp,
-      unreadCount: 1,
-      messages: [message]
-    })
   }
 }
 
@@ -318,6 +262,26 @@ const formatDate = (dateString: string | null) => {
 }
 
 // Assurer que la connexion websocket est fermée lors du démontage
+// Ajouter le handler pour gérer le message du chat
+const handleSendMessage = (message: string, sessionId: string) => {
+  if (!wsConnection.value || wsConnection.value.readyState !== WebSocket.OPEN) {
+    return
+  }
+  
+  try {
+    wsConnection.value.send(JSON.stringify({
+      type: "chat_message",
+      payload: {
+        sessionId: sessionId,
+        sender: "admin",
+        message: message,
+        read: true
+      }
+    }))
+  } catch (error) {
+    console.error("Error sending admin message:", error)
+  }
+}
 onUnmounted(() => {
   if (wsConnection.value && wsConnection.value.readyState === WebSocket.OPEN) {
     wsConnection.value.close()
@@ -337,7 +301,6 @@ watch(activeTab, (newTab) => {
     <div class="container mx-auto px-4">
       <h1 class="text-3xl md:text-4xl font-bold mb-8">Administration</h1>
       
-      <!-- Formulaire de connexion -->
       <div v-if="!authStore.isAuthenticated" class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-md">
         <h2 class="text-2xl font-bold mb-6">Connexion</h2>
         
@@ -374,9 +337,7 @@ watch(activeTab, (newTab) => {
         </form>
       </div>
       
-      <!-- Interface d'administration -->
       <div v-else>
-        <!-- Onglets -->
         <div class="border-b border-gray-200 mb-6">
           <nav class="flex space-x-8">
             <button 
@@ -414,82 +375,102 @@ watch(activeTab, (newTab) => {
             >
               Analytics
             </button>
+            <button 
+              @click="setActiveTab('chat')" 
+              class="py-4 px-2 border-b-2 font-medium text-sm"
+              :class="activeTab === 'chat' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'"
+            >
+              Chat en direct
+            </button>
           </nav>
         </div>
         
-        <!-- Contenu des onglets -->
         <div v-if="activeTab === 'dashboard'" class="bg-white rounded-lg shadow p-6">
           <h2 class="text-2xl font-bold mb-4">Tableau de bord</h2>
           <p class="text-gray-600">
             Bienvenue dans l'interface d'administration du site AxesTrade.
           </p>
-          <!-- À compléter avec des statistiques et des widgets -->
         </div>
-        
-        <div v-if="activeTab === 'products'" class="bg-white rounded-lg shadow p-6">
-          <h2 class="text-2xl font-bold mb-4">Gestion des produits</h2>
-          <!-- À compléter avec le formulaire de gestion des produits -->
+        <div v-if="activeTab === 'chat'">
+          <ChatPanel 
+            :chatSessions="chatSessions" 
+            :selectedChatSession="selectedChatSession" 
+            :wsConnected="wsConnected"
+            @update:selectedChatSession="selectChatSession"
+            @send-message="handleSendMessage"
+            @refresh-connection="setupWebSocketConnection"
+          />
         </div>
-        
-        <div v-if="activeTab === 'blog'" class="bg-white rounded-lg shadow p-6">
-          <h2 class="text-2xl font-bold mb-4">Gestion du blog</h2>
-          <!-- À compléter avec le formulaire de gestion des articles -->
-        </div>
-        
-        <div v-if="activeTab === 'messages'" class="bg-white rounded-lg shadow p-6">
-          <h2 class="text-2xl font-bold mb-4">Messages de contact</h2>
-          <!-- À compléter avec la liste des messages -->
-        </div>
-        
-        <div v-if="activeTab === 'analytics'" class="bg-white rounded-lg shadow p-6">
-        <div v-if="activeTab === 'chat'" class="bg-white rounded-lg shadow p-6">
-          <h2 class="text-2xl font-bold mb-4">Chat en direct</h2>
-          
-          <div v-if="!wsConnected" class="text-center py-12">
-            <div class="text-gray-500 mb-4">Connexion au service de chat en cours...</div>
-            <button @click="setupWebSocketConnection" class="btn btn-primary">
-              Reconnecter
-            </button>
-          </div>
-          
-          <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <!-- Liste des sessions -->
-            <div class="border-r border-gray-200 pr-4">
-              <h3 class="font-medium text-gray-900 mb-4">Conversations</h3>
-              
-              <div v-if="chatSessions.length === 0" class="text-gray-500 text-sm">
-                Aucune conversation active pour le moment.
-              </div>
-              
-              <div v-else class="space-y-2">
-                <div 
-                  v-for="session in chatSessions" 
-                  :key="session.sessionId" 
-                  @click="selectChatSession(session.sessionId)" 
-                  class="p-3 rounded cursor-pointer"
-                  :class="selectedChatSession === session.sessionId ? 'bg-blue-50 border-blue-500'" 
-                >
-                  <div class="flex justify-between items-start">
-                    <div>
-                      <div class="font-medium">{{ session.customerInfo.name || 'Client'}}</div>
-                      <div class="text-sm text-gray-500">{{ session.customerInfo.company }}</div>
-                    </div>
-                    <div v-if="session.unreadCount" class="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
-                      {{ session.unreadCount }}
+              <div class="bg-white rounded border border-gray-200 h-96 flex flex-col">
+                <div class="flex-grow overflow-y-auto p-4 space-y-3">
+                  <div 
+                    v-for="message in selectedSession.messages" 
+                    :key="message.id"
+                    class="flex"
+                    :class="message.sender === 'admin' ? 'justify-end' : ''"
+                  >
+                    <div 
+                      class="max-w-[80%] rounded-lg px-4 py-2 text-sm"
+                      :class="message.sender === 'admin' 
+                        ? 'bg-blue-500 text-white rounded-bl-lg rounded-tl-lg rounded-tr-lg' 
+                        : message.sender === 'bot'
+                          ? 'bg-gray-200 text-gray-800 rounded-br-lg rounded-tr-lg rounded-tl-lg' 
+                          : 'bg-gray-100 text-gray-800 rounded-br-lg rounded-tr-lg rounded-tl-lg'"
+                    >
+                      <div>{{ message.message }}</div>
+                      <div class="text-xs mt-1 opacity-70">
+                        {{ formatDate(message.timestamp) }}
+                      </div>
                     </div>
                   </div>
-                  <div class="text-xs text-gray-400 mt-1">
-                    {{ formatDate(session.lastActivity) }}
-                  </div>
+                </div>
+                
+                <div class="border-t border-gray-200 p-3">
+                  <form @submit.prevent="sendAdminMessage" class="flex space-x-2">
+                    <input 
+                      v-model="adminChatMessage" 
+                      type="text" 
+                      class="form-input flex-grow" 
+                      placeholder="Entrez votre message..." 
+                    />
+                    <button 
+                      type="submit" 
+                      class="btn btn-primary"
+                      :disabled="!adminChatMessage.trim() || !wsConnected"
+                    >
+                      Envoyer
+                    </button>
+                  </form>
                 </div>
               </div>
             </div>
+            
+            <div v-else class="col-span-2 flex items-center justify-center h-full">
+              <div class="text-gray-500">
+                Sélectionnez une conversation pour afficher les détails
+              </div>
+            </div>
           </div>
-        </div>
-          <h2 class="text-2xl font-bold mb-4">Statistiques du site</h2>
-          <!-- À compléter avec des graphiques et des statistiques -->
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.form-label {
+  @apply block text-sm font-medium text-gray-700 mb-1;
+}
+
+.form-input {
+  @apply px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm;
+}
+
+.btn {
+  @apply px-4 py-2 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2;
+}
+
+.btn-primary {
+  @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+}
+</style>

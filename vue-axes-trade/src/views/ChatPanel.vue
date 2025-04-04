@@ -1,3 +1,87 @@
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { useAuthStore } from '../stores/auth'
+
+// Types pour le système de chat
+interface ChatMessage {
+  id: number;
+  sessionId: string;
+  sender: 'user' | 'admin' | 'bot';
+  message: string;
+  timestamp: string;
+  read: boolean;
+}
+
+interface CustomerInfo {
+  name: string;
+  company: string;
+  service: string;
+  phone: string;
+}
+
+interface ChatSession {
+  sessionId: string;
+  customerInfo: CustomerInfo;
+  lastActivity: string;
+  unreadCount: number;
+  messages: ChatMessage[];
+}
+
+// Props et émissions
+const props = defineProps<{
+  chatSessions: ChatSession[];
+  selectedChatSession: string | null;
+  wsConnected: boolean;
+}>()
+
+const emit = defineEmits<{
+  (e: 'update:selectedChatSession', value: string): void;
+  (e: 'send-message', message: string, sessionId: string): void;
+  (e: 'refresh-connection'): void;
+}>()
+
+// Variables locales
+const adminChatMessage = ref('')
+
+// Propriété calculée pour obtenir la session sélectionnée
+const selectedSession = computed(() => {
+  return props.chatSessions.find(session => session.sessionId === props.selectedChatSession)
+})
+
+// Gérer la sélection d'une session de chat
+const selectChatSession = (sessionId: string) => {
+  emit('update:selectedChatSession', sessionId)
+}
+
+// Envoyer un message
+const sendAdminMessage = () => {
+  if (!adminChatMessage.value.trim() || !props.selectedChatSession) {
+    return
+  }
+  
+  emit('send-message', adminChatMessage.value.trim(), props.selectedChatSession)
+  adminChatMessage.value = ''
+}
+
+// Formatter la date
+const formatDate = (dateString: string | null) => {
+  if (!dateString) return 'N/A'
+  
+  return new Date(dateString).toLocaleDateString('fr-FR', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+// Reconnecter le WebSocket
+const setupWebSocketConnection = () => {
+  emit('refresh-connection')
+}
+</script>
+
 <template>
   <div class="bg-white rounded-lg shadow p-6">
     <h2 class="text-2xl font-bold mb-4">Chat en direct</h2>
@@ -24,7 +108,7 @@
             :key="session.sessionId" 
             @click="selectChatSession(session.sessionId)" 
             class="p-3 rounded cursor-pointer"
-            :class="selectedChatSession === session.sessionId ? 'bg-blue-50 border-blue-500'" 
+            :class="selectedChatSession === session.sessionId ? 'bg-blue-50 border-blue-500' : ''" 
           >
             <div class="flex justify-between items-start">
               <div>
@@ -101,3 +185,17 @@
     </div>
   </div>
 </template>
+
+<style scoped>
+.form-input {
+  @apply px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm;
+}
+
+.btn {
+  @apply px-4 py-2 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2;
+}
+
+.btn-primary {
+  @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+}
+</style>
