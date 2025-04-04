@@ -3,7 +3,9 @@ import Home from '../views/Home.vue'
 import Products from '../views/Products.vue'
 import Blog from '../views/Blog.vue'
 import Admin from '../views/Admin.vue'
+import Login from '../views/Login.vue'
 import NotFound from '../views/NotFound.vue'
+import { authGuard } from './auth-guard'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -34,9 +36,18 @@ const router = createRouter({
       component: () => import('../views/BlogPostDetail.vue')
     },
     {
+      path: '/login',
+      name: 'login',
+      component: Login
+    },
+    {
       path: '/admin',
       name: 'admin',
-      component: Admin
+      component: Admin,
+      meta: {
+        requiresAuth: true,
+        requiresAdmin: true
+      }
     },
     {
       path: '/:pathMatch(.*)*',
@@ -60,5 +71,8 @@ const router = createRouter({
     return { top: 0, behavior: 'smooth' }
   }
 })
+
+// Appliquer le garde d'authentification à chaque navigation
+router.beforeEach(authGuard)
 
 export default router

@@ -17,7 +17,7 @@ const currentYear = new Date().getFullYear()
         <!-- Logo et description -->
         <div class="md:col-span-1">
           <div class="brand-name text-xl font-bold mb-4">
-            <span class="axes">Axes</span><span class="trade">Trade</span>
+            <span class="text-axes font-bold">Axes</span><span class="text-trade font-bold">Trade</span>
           </div>
           <p class="text-gray-300 mb-4">
             Spécialiste en solutions d'impression professionnelles et matériel bureautique de qualité.

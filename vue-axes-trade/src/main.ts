@@ -1,5 +1,5 @@
 import { createApp } from 'vue'
-import { createStore } from 'vuex'
+import { createPinia } from 'pinia'
 import { createRouter, createWebHistory } from 'vue-router'
 import { library } from '@fortawesome/fontawesome-svg-core'
 import { fas } from '@fortawesome/free-solid-svg-icons'
@@ -19,86 +19,8 @@ library.add(fas, fab)
 // Configure Axios
 axios.defaults.baseURL = '/api'
 
-// Create Vuex store
-const store = createStore({
-  state() {
-    return {
-      user: null,
-      isAuthenticated: false,
-      products: [],
-      blogPosts: [],
-      contactMessages: [],
-      pageViews: [],
-      chatMessages: []
-    }
-  },
-  mutations: {
-    setUser(state, user) {
-      state.user = user
-      state.isAuthenticated = !!user
-    },
-    setProducts(state, products) {
-      state.products = products
-    },
-    setBlogPosts(state, posts) {
-      state.blogPosts = posts
-    },
-    setContactMessages(state, messages) {
-      state.contactMessages = messages
-    },
-    setPageViews(state, views) {
-      state.pageViews = views
-    },
-    setChatMessages(state, messages) {
-      state.chatMessages = messages
-    }
-  },
-  actions: {
-    async fetchProducts({ commit }) {
-      try {
-        const response = await axios.get('/products')
-        commit('setProducts', response.data)
-        return response.data
-      } catch (error) {
-        console.error('Error fetching products:', error)
-        return []
-      }
-    },
-    async fetchBlogPosts({ commit }, publishedOnly = true) {
-      try {
-        const response = await axios.get(`/blog-posts?publishedOnly=${publishedOnly}`)
-        commit('setBlogPosts', response.data)
-        return response.data
-      } catch (error) {
-        console.error('Error fetching blog posts:', error)
-        return []
-      }
-    },
-    async fetchContactMessages({ commit }) {
-      try {
-        const response = await axios.get('/contact-messages')
-        commit('setContactMessages', response.data)
-        return response.data
-      } catch (error) {
-        console.error('Error fetching contact messages:', error)
-        return []
-      }
-    }
-  },
-  getters: {
-    isAdmin(state) {
-      return state.user?.role === 'admin'
-    },
-    featuredProducts(state) {
-      return state.products.filter(product => product.featured)
-    },
-    publishedBlogPosts(state) {
-      return state.blogPosts.filter(post => post.isPublished)
-    }
-  }
-})
-
-// Router is imported from './router'
+// Create Pinia store
+const pinia = createPinia()
 
 // Create and mount app
 const app = createApp(App)
@@ -107,7 +29,7 @@ const app = createApp(App)
 app.component('font-awesome-icon', FontAwesomeIcon)
 
 // Use plugins
-app.use(store)
+app.use(pinia)
 app.use(router)
 
 app.mount('#app')

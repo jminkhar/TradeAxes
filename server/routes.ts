@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { 
@@ -6,13 +6,218 @@ import {
   insertBlogPostSchema, 
   insertProductSchema,
   insertPageViewSchema,
-  insertChatMessageSchema
+  insertChatMessageSchema,
+  insertUserSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import { WebSocketServer, WebSocket } from "ws";
+import { scrypt, randomBytes, timingSafeEqual } from "crypto";
+import { promisify } from "util";
+import session from "express-session";
+// Suppression de la dépendance SendGrid, on utilisera une approche plus simple
+import './types'; // Importer les types étendus pour express-session
+
+const scryptAsync = promisify(scrypt);
+
+// Middleware d'authentification pour protéger les routes
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+  next();
+}
+
+// Middleware pour vérifier si l'utilisateur est administrateur
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+  
+  try {
+    const user = await storage.getUser(req.session.userId);
+    if (!user || !user.isAdmin) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    next();
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
+// Fonction pour hacher les mots de passe
+async function hashPassword(password: string) {
+  const salt = randomBytes(16).toString("hex");
+  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${buf.toString("hex")}.${salt}`;
+}
+
+// Fonction pour comparer les mots de passe
+async function comparePasswords(supplied: string, stored: string) {
+  const [hashed, salt] = stored.split(".");
+  const hashedBuf = Buffer.from(hashed, "hex");
+  const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+  return timingSafeEqual(hashedBuf, suppliedBuf);
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Configuration de la session
+  app.use(session({
+    secret: process.env.SESSION_SECRET || "axes-trade-secret-key",
+    resave: false,
+    saveUninitialized: false,
+    cookie: { 
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 1000 * 60 * 60 * 24 * 7 // 1 semaine
+    }
+  } as session.SessionOptions));
+
   // prefix all routes with /api
+  
+  // Routes d'authentification
+  app.post('/api/register', async (req, res) => {
+    try {
+      // Validation des données
+      const userInput = insertUserSchema.parse(req.body);
+      
+      // Vérifier si l'utilisateur existe déjà
+      const existingUser = await storage.getUserByUsername(userInput.username);
+      if (existingUser) {
+        return res.status(400).json({ 
+          success: false,
+          message: "Ce nom d'utilisateur est déjà utilisé"
+        });
+      }
+      
+      // Hacher le mot de passe
+      const hashedPassword = await hashPassword(userInput.password);
+      
+      // Créer l'utilisateur
+      const user = await storage.createUser({
+        ...userInput,
+        password: hashedPassword
+      });
+      
+      // Établir la session
+      req.session.userId = user.id;
+      
+      // Retourner l'utilisateur sans le mot de passe
+      const { password, ...userWithoutPassword } = user;
+      res.status(201).json({ 
+        success: true,
+        user: userWithoutPassword
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ 
+          success: false,
+          message: "Erreur de validation",
+          errors: error.errors
+        });
+      } else {
+        console.error("Error during registration:", error);
+        res.status(500).json({ 
+          success: false,
+          message: "Une erreur est survenue lors de l'inscription"
+        });
+      }
+    }
+  });
+  
+  app.post('/api/login', async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      
+      if (!username || !password) {
+        return res.status(400).json({ 
+          success: false,
+          message: "Nom d'utilisateur et mot de passe requis"
+        });
+      }
+      
+      // Rechercher l'utilisateur
+      const user = await storage.getUserByUsername(username);
+      if (!user) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Identifiants incorrects"
+        });
+      }
+      
+      // Vérifier le mot de passe
+      const passwordValid = await comparePasswords(password, user.password);
+      if (!passwordValid) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Identifiants incorrects"
+        });
+      }
+      
+      // Établir la session
+      req.session.userId = user.id;
+      
+      // Retourner l'utilisateur sans le mot de passe
+      const { password: _, ...userWithoutPassword } = user;
+      res.status(200).json({ 
+        success: true,
+        user: userWithoutPassword
+      });
+    } catch (error) {
+      console.error("Error during login:", error);
+      res.status(500).json({ 
+        success: false,
+        message: "Une erreur est survenue lors de la connexion"
+      });
+    }
+  });
+  
+  app.post('/api/logout', (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ 
+          success: false,
+          message: "Erreur lors de la déconnexion"
+        });
+      }
+      
+      res.status(200).json({ 
+        success: true,
+        message: "Déconnecté avec succès"
+      });
+    });
+  });
+  
+  app.get('/api/user', async (req, res) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ 
+        success: false,
+        message: "Non authentifié"
+      });
+    }
+    
+    try {
+      const user = await storage.getUser(req.session.userId);
+      if (!user) {
+        req.session.destroy(() => {});
+        return res.status(401).json({ 
+          success: false,
+          message: "Utilisateur non trouvé"
+        });
+      }
+      
+      // Retourner l'utilisateur sans le mot de passe
+      const { password, ...userWithoutPassword } = user;
+      res.status(200).json({ 
+        success: true,
+        user: userWithoutPassword
+      });
+    } catch (error) {
+      console.error("Error getting current user:", error);
+      res.status(500).json({ 
+        success: false,
+        message: "Une erreur est survenue lors de la récupération des informations utilisateur"
+      });
+    }
+  });
 
   // Contact form endpoint
   app.post('/api/contact', async (req, res) => {
@@ -20,31 +225,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = contactMessageSchema.parse(req.body);
       const message = await storage.createContactMessage(validatedData);
       
-      // In a real production app, you might want to send an email here
-      // For now, we'll just return the saved message
+      // Pour l'instant, on enregistre simplement le message dans la base de données
+      // À l'avenir, on pourrait ajouter une notification WhatsApp ici
+      // TODO: Implémenter l'intégration WhatsApp si nécessaire
+      
+      console.log('Nouveau message de contact reçu:', {
+        nom: validatedData.name,
+        email: validatedData.email,
+        sujet: validatedData.subject
+      });
       
       res.status(201).json({ 
         success: true, 
-        message: "Message sent successfully" 
+        message: "Message envoyé avec succès" 
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
         res.status(400).json({ 
           success: false,
-          message: "Validation error",
+          message: "Erreur de validation",
           errors: error.errors
         });
       } else {
+        console.error('Erreur lors du traitement du formulaire de contact:', error);
         res.status(500).json({ 
           success: false,
-          message: "An error occurred while processing your request" 
+          message: "Une erreur est survenue lors du traitement de votre demande" 
         });
       }
     }
   });
   
   // Get all contact messages (admin endpoint)
-  app.get('/api/contact', async (req, res) => {
+  app.get('/api/contact', requireAdmin, async (req, res) => {
     try {
       const messages = await storage.getContactMessages();
       res.status(200).json({ 
@@ -60,7 +273,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Blog routes
-  app.post('/api/blog', async (req, res) => {
+  app.post('/api/blog', requireAdmin, async (req, res) => {
     try {
       const validatedData = insertBlogPostSchema.parse(req.body);
       const post = await storage.createBlogPost(validatedData);
@@ -96,7 +309,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/blog/:id', async (req, res) => {
+  app.put('/api/blog/:id', requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const validatedData = insertBlogPostSchema.partial().parse(req.body);
@@ -114,7 +327,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/blog/:id', async (req, res) => {
+  app.delete('/api/blog/:id', requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const success = await storage.deleteBlogPost(id);
@@ -128,7 +341,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Product routes
-  app.post('/api/products', async (req, res) => {
+  app.post('/api/products', requireAdmin, async (req, res) => {
     try {
       const validatedData = insertProductSchema.parse(req.body);
       const product = await storage.createProduct(validatedData);
@@ -163,7 +376,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/products/:id', async (req, res) => {
+  app.put('/api/products/:id', requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const validatedData = insertProductSchema.partial().parse(req.body);
@@ -181,7 +394,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/products/:id', async (req, res) => {
+  app.delete('/api/products/:id', requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const success = await storage.deleteProduct(id);
@@ -209,7 +422,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/analytics/pageviews', async (req, res) => {
+  app.get('/api/analytics/pageviews', requireAdmin, async (req, res) => {
     try {
       const pageViews = await storage.getPageViews();
       res.status(200).json({ success: true, data: pageViews });

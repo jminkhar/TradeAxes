@@ -11,7 +11,7 @@
             Solutions d'impression professionnelles
           </h1>
           <p class="text-lg md:text-xl text-gray-600 mb-8 max-w-2xl">
-            <span class="brand-name"><span class="axes">Axes</span><span class="trade">Trade</span></span> vous propose une gamme complète d'imprimantes et de solutions d'impression pour répondre à tous vos besoins professionnels.
+            <span class="brand-name"><span class="text-axes font-bold">Axes</span><span class="text-trade font-bold">Trade</span></span> vous propose une gamme complète d'imprimantes et de solutions d'impression pour répondre à tous vos besoins professionnels.
           </p>
           <div class="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
             <router-link to="/products" class="btn btn-primary">
