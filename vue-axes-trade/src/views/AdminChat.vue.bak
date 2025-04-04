@@ -207,7 +207,7 @@ const setupWebSocketConnection = () => {
   }
   
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${protocol}//172.31.128.108:5000/ws`; console.log(`WebSocket URL: ${wsUrl}`);
+  const wsUrl = `${protocol}//${window.location.host}/ws`
   
   const socket = new WebSocket(wsUrl)
   wsConnection.value = socket

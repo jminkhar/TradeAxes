@@ -116,11 +116,12 @@ const setupWebSocketConnection = () => {
     return
   }
   
+  // Utilisez directement location.host qui contient déjà 'hostname:port'
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host
-  const wsUrl = `${protocol}//${host}/ws`
+  const wsUrl = `${protocol}//172.31.128.108:5000/ws`; console.log(`WebSocket URL: ${wsUrl}`);
   
-  console.log(`Établissement de la connexion WebSocket vers ${wsUrl}`)
+  console.log(`Admin - Établissement de la connexion WebSocket vers ${wsUrl}`)
   
   try {
     const socket = new WebSocket(wsUrl)
