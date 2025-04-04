@@ -533,17 +533,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
               
               // Chercher le dernier message contenant des infos client
               const messagesReversed = [...messages].reverse();
+              let foundCustomerInfo = false;
+              
               for (const msg of messagesReversed) {
+                console.log(`Checking message metadata for session ${sessionId}:`, 
+                           msg.metadata ? JSON.stringify(msg.metadata) : 'null');
+                  
                 if (msg.metadata && typeof msg.metadata === 'object') {
                   const metadata = msg.metadata as Record<string, any>;
                   if (metadata.customerInfo) {
-                    customerInfo = metadata.customerInfo as {
-                      name: string;
-                      company: string;
-                      service: string;
-                      phone: string;
+                    customerInfo = {
+                      name: metadata.customerInfo.name || 'Client',
+                      company: metadata.customerInfo.company || '',
+                      service: metadata.customerInfo.service || '',
+                      phone: metadata.customerInfo.phone || ''
                     };
+                    foundCustomerInfo = true;
                     console.log(`Infos client trouvées pour ${sessionId}:`, customerInfo);
+                    break;
+                  }
+                }
+              }
+              
+              if (!foundCustomerInfo) {
+                console.log(`Aucune métadonnée trouvée pour la session ${sessionId}, recherche dans les messages...`);
+                
+                // Essai de trouver des informations dans les messages
+                for (const msg of messages) {
+                  if (msg.message.includes('Demande de chat en direct')) {
+                    const msgParts = msg.message.split(' - ');
+                    if (msgParts.length > 1) {
+                      const infoText = msgParts[1];
+                      const nameCompanyMatch = infoText.match(/(.+?) de (.+?) concernant (.+)/);
+                      if (nameCompanyMatch && nameCompanyMatch.length > 3) {
+                        customerInfo.name = nameCompanyMatch[1] || 'Client';
+                        customerInfo.company = nameCompanyMatch[2] || '';
+                        customerInfo.service = nameCompanyMatch[3] || '';
+                        console.log(`Infos client extraites du message pour ${sessionId}:`, customerInfo);
+                      }
+                    }
                     break;
                   }
                 }
@@ -586,6 +614,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (thisClient && thisClient.type === 'user' && thisClient.sessionId) {
             if (!validatedData.sessionId) {
               validatedData.sessionId = thisClient.sessionId;
+            }
+          }
+          
+          // Si c'est un message admin, essayons de trouver les métadonnées de session existantes
+          if (validatedData.sender === 'admin' && validatedData.sessionId) {
+            // Récupérer les derniers messages de cette session pour trouver des métadonnées
+            try {
+              const existingMessages = await storage.getChatMessagesBySession(validatedData.sessionId);
+              // Trouver le dernier message avec des métadonnées
+              for (const msg of [...existingMessages].reverse()) {
+                if (msg.metadata && typeof msg.metadata === 'object') {
+                  // Préserver les métadonnées (notamment customerInfo)
+                  validatedData.metadata = msg.metadata;
+                  console.log(`Métadonnées préservées pour le message admin:`, msg.metadata);
+                  break;
+                }
+              }
+            } catch (error) {
+              console.error(`Erreur lors de la récupération des métadonnées:`, error);
             }
           }
           
@@ -651,17 +698,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
             thisClient.sessionId = sessionId;
           }
           
+          // S'assurer que les métadonnées sont correctement formatées pour PostgreSQL
+          const metadata = {
+            type: 'live_chat_request',
+            customerInfo: {
+              name: customerInfo.name || '',
+              company: customerInfo.company || '',
+              service: customerInfo.service || '',
+              phone: customerInfo.phone || ''
+            },
+            timestamp: new Date().toISOString()
+          };
+          
+          console.log('Saving chat message with metadata:', JSON.stringify(metadata));
+          
           // Enregistrer la demande de chat en direct dans la base de données
           const chatMessage = await storage.createChatMessage({
             sessionId,
             sender: 'bot',
             message: `Demande de chat en direct - ${customerInfo.name} de ${customerInfo.company} concernant ${customerInfo.service}`,
             read: false,
-            metadata: {
-              type: 'live_chat_request',
-              customerInfo,
-              timestamp: new Date().toISOString()
-            }
+            metadata: metadata
           });
           
           // Notifier tous les administrateurs connectés
