@@ -144,6 +144,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { adminWebSocket } from '../utils/websocket'
+import websocketConfig from '../config/websocket'
 
 // Types pour le système de chat
 interface ChatMessage {
@@ -206,45 +208,51 @@ const setupWebSocketConnection = () => {
     return
   }
   
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${protocol}//172.31.128.108:5000/ws`; console.log(`WebSocket URL: ${wsUrl}`);
-  
-  const socket = new WebSocket(wsUrl)
-  wsConnection.value = socket
-  
-  socket.onopen = () => {
-    console.log('Admin WebSocket connection established')
-    wsConnected.value = true
+  // Utiliser le gestionnaire WebSocket centralisé
+  try {
+    // Connexion au WebSocket via notre gestionnaire
+    adminWebSocket.connect()
     
-    // Demander toutes les sessions actives
-    socket.send(JSON.stringify({
-      type: 'admin_get_sessions'
-    }))
-  }
-  
-  socket.onmessage = (event) => {
-    const data = JSON.parse(event.data)
+    // Configuration des gestionnaires d'événements
+    adminWebSocket.onConnect(() => {
+      wsConnected.value = true
+      wsConnection.value = { 
+        readyState: WebSocket.OPEN, 
+        send: (data) => adminWebSocket.send(JSON.parse(data)),
+        close: () => adminWebSocket.disconnect()
+      } as any
+      
+      // Demander les sessions actives
+      adminWebSocket.send({
+        type: 'admin_get_sessions'
+      })
+    })
     
-    if (data.type === 'chat_message') {
-      // Ajouter le message à la session correspondante
-      handleChatMessage(data.message)
-    } else if (data.type === 'chat_sessions') {
-      // Réception de toutes les sessions actives
-      chatSessions.value = data.sessions
-    } else if (data.type === 'admin_notification') {
-      handleAdminNotification(data.notification)
-    }
-  }
-  
-  socket.onerror = (error) => {
-    console.error('Admin WebSocket error:', error)
+    adminWebSocket.onMessage((data) => {
+      if (data.type === 'chat_message') {
+        // Ajouter le message à la session correspondante
+        handleChatMessage(data.message)
+      } else if (data.type === 'chat_sessions') {
+        // Réception de toutes les sessions actives
+        chatSessions.value = data.sessions
+      } else if (data.type === 'admin_notification') {
+        handleAdminNotification(data.notification)
+      }
+    })
+    
+    adminWebSocket.onError((error) => {
+      console.error('Admin WebSocket error:', error)
+      wsConnected.value = false
+    })
+    
+    adminWebSocket.onClose(() => {
+      console.log('Admin WebSocket connection closed')
+      wsConnected.value = false
+      wsConnection.value = null
+    })
+  } catch (error) {
+    console.error('WebSocket connection error:', error)
     wsConnected.value = false
-  }
-  
-  socket.onclose = () => {
-    console.log('Admin WebSocket connection closed')
-    wsConnected.value = false
-    wsConnection.value = null
   }
 }
 

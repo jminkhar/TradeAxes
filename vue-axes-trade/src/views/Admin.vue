@@ -110,74 +110,71 @@ const handleChatMessage = (message: ChatMessage) => {
   }
 }
 
+// Import du gestionnaire WebSocket
+import { adminWebSocket } from '../utils/websocket'
+
 // Établir la connexion WebSocket
 const setupWebSocketConnection = () => {
   if (wsConnection.value && wsConnection.value.readyState === WebSocket.OPEN) {
     return
   }
   
-  // Utilisez directement location.host qui contient déjà 'hostname:port'
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.host
-  const wsUrl = `${protocol}//172.31.128.108:5000/ws`; console.log(`WebSocket URL: ${wsUrl}`);
-  
-  console.log(`Admin - Établissement de la connexion WebSocket vers ${wsUrl}`)
-  
+  // Utiliser le gestionnaire WebSocket centralisé
   try {
-    const socket = new WebSocket(wsUrl)
-    wsConnection.value = socket
+    // Connexion au WebSocket via notre gestionnaire
+    adminWebSocket.connect()
     
-    socket.onopen = () => {
-      console.log('Admin WebSocket connection established')
+    // Configuration des gestionnaires d'événements
+    adminWebSocket.onConnect(() => {
       wsConnected.value = true
+      wsConnection.value = { 
+        readyState: WebSocket.OPEN, 
+        send: (data) => adminWebSocket.send(JSON.parse(data)),
+        close: () => adminWebSocket.disconnect()
+      } as any
       
-      // S'identifier comme admin d'abord
-      socket.send(JSON.stringify({
+      // S'identifier comme admin
+      adminWebSocket.send({
         type: 'identify_client',
         clientType: 'admin',
         adminToken: 'authenticated_admin'
-      }))
+      })
       
-      // Attendre un court instant avant de demander les sessions
+      // Demander les sessions actives
       setTimeout(() => {
         console.log('Admin requesting chat sessions...')
-        // Ensuite demander toutes les sessions actives
-        socket.send(JSON.stringify({
+        adminWebSocket.send({
           type: 'admin_get_sessions'
-        }))
+        })
       }, 1000)
-    }
+    })
     
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        console.log('Admin received WebSocket message:', data.type)
-        
-        if (data.type === 'chat_message') {
-          // Ajouter le message à la session correspondante
-          handleChatMessage(data.message)
-        } else if (data.type === 'chat_sessions') {
-          // Réception de toutes les sessions actives
-          console.log('Received chat sessions:', data.sessions.length)
-          chatSessions.value = data.sessions
-        } else if (data.type === 'admin_notification') {
-          handleAdminNotification(data.notification)
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error, event.data)
+    adminWebSocket.onMessage((data) => {
+      console.log('Admin received WebSocket message:', data.type)
+      
+      if (data.type === 'chat_message') {
+        // Ajouter le message à la session correspondante
+        handleChatMessage(data.message)
+      } else if (data.type === 'chat_sessions') {
+        // Réception de toutes les sessions actives
+        console.log('Received chat sessions:', data.sessions.length)
+        chatSessions.value = data.sessions
+      } else if (data.type === 'admin_notification') {
+        handleAdminNotification(data.notification)
       }
-    }
+    })
     
-    socket.onerror = (error) => {
+    adminWebSocket.onError((error) => {
       console.error('Admin WebSocket error:', error)
       wsConnected.value = false
-    }
+    })
     
-    socket.onclose = () => {
+    adminWebSocket.onClose(() => {
       console.log('Admin WebSocket connection closed')
       wsConnected.value = false
       wsConnection.value = null
-    }
+    })
+    
   } catch (error) {
     console.error('WebSocket connection error:', error)
     wsConnected.value = false
