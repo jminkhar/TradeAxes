@@ -508,6 +508,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
               messages
             }));
           }
+        } else if (data.type === 'live_chat_request') {
+          // Un client demande à parler à un conseiller en direct
+          console.log('Client demande un chat en direct:', data.payload.customerInfo);
+          
+          // Notifier tous les administrateurs connectés
+          const adminNotification = JSON.stringify({
+            type: 'admin_notification',
+            notification: {
+              type: 'live_chat_request',
+              message: `${data.payload.customerInfo.name} de ${data.payload.customerInfo.company} demande un chat en direct concernant: ${data.payload.customerInfo.service}. Téléphone: ${data.payload.customerInfo.phone}`,
+              sessionId: data.payload.sessionId,
+              customerInfo: data.payload.customerInfo,
+              timestamp: new Date().toISOString()
+            }
+          });
+          
+          // Envoyer la notification à tous les clients (l'interface admin filtrera)
+          clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(adminNotification);
+            }
+          });
         }
       } catch (error) {
         console.error('Error processing message:', error);

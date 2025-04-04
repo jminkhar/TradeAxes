@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   Tabs, 
@@ -40,7 +40,14 @@ import {
   faTimes, 
   faCheck, 
   faEye, 
-  faArrowLeft 
+  faArrowLeft,
+  faComment,
+  faCommentDots,
+  faPaperPlane,
+  faPhone,
+  faUser,
+  faBuilding,
+  faExclamationCircle
 } from '@fortawesome/free-solid-svg-icons';
 
 // Types
@@ -98,6 +105,28 @@ interface PageView {
   timestamp: string;
 }
 
+interface ChatMessage {
+  id: number;
+  sessionId: string;
+  sender: 'user' | 'admin' | 'bot';
+  message: string;
+  timestamp: string;
+  read: boolean;
+}
+
+interface ChatSession {
+  sessionId: string;
+  customerInfo: {
+    name: string;
+    company: string;
+    service: string;
+    phone: string;
+  };
+  lastActivity: string;
+  unreadCount: number;
+  messages: ChatMessage[];
+}
+
 // Form types for add/edit operations
 interface BlogPostForm {
   title: string;
@@ -148,11 +177,229 @@ const generateSlug = (title: string) => {
 
 export default function Admin() {
   const [activeTab, setActiveTab] = useState("messages");
-  const [mode, setMode] = useState<'list' | 'add' | 'edit'>('list');
+  const [mode, setMode] = useState<'list' | 'add' | 'edit' | 'chat'>('list');
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [selectedChatSession, setSelectedChatSession] = useState<string | null>(null);
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [adminChatMessage, setAdminChatMessage] = useState('');
+  const [wsConnection, setWsConnection] = useState<WebSocket | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
   
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  
+  // Effet pour se connecter au WebSocket et gérer les messages de chat
+  useEffect(() => {
+    if (activeTab !== 'chat') return;
+    
+    // Établir la connexion WebSocket
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const socket = new WebSocket(wsUrl);
+    
+    setWsConnection(socket);
+    
+    socket.onopen = () => {
+      setWsConnected(true);
+      console.log('Admin WebSocket connection established');
+    };
+    
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      
+      if (data.type === 'chat_message') {
+        // Ajouter le message à la session correspondante
+        setChatSessions(prev => {
+          const sessionIndex = prev.findIndex(s => s.sessionId === data.message.sessionId);
+          
+          if (sessionIndex >= 0) {
+            // Mise à jour d'une session existante
+            const updatedSessions = [...prev];
+            const session = {...updatedSessions[sessionIndex]};
+            
+            // Ajouter le message
+            session.messages = [...session.messages, data.message];
+            session.lastActivity = data.message.timestamp;
+            
+            // Mettre à jour le compteur de messages non lus si ce n'est pas la session actuellement sélectionnée
+            if (selectedChatSession !== data.message.sessionId && data.message.sender === 'user') {
+              session.unreadCount = (session.unreadCount || 0) + 1;
+            }
+            
+            updatedSessions[sessionIndex] = session;
+            return updatedSessions;
+          } else if (data.message.sender === 'user') {
+            // Nouvelle session
+            return [...prev, {
+              sessionId: data.message.sessionId,
+              customerInfo: {
+                name: 'Client',
+                company: '',
+                service: '',
+                phone: ''
+              },
+              lastActivity: data.message.timestamp,
+              unreadCount: 1,
+              messages: [data.message]
+            }];
+          }
+          
+          return prev;
+        });
+        
+        // Si ce n'est pas la session actuellement sélectionnée et que c'est un message utilisateur, afficher une notification
+        if (selectedChatSession !== data.message.sessionId && data.message.sender === 'user') {
+          toast({
+            title: "Nouveau message",
+            description: "Un client a envoyé un nouveau message",
+            duration: 5000,
+          });
+        }
+      } else if (data.type === 'session_messages') {
+        // Si on reçoit des messages de session, les ajouter à la session correspondante
+        const sessionId = data.messages[0]?.sessionId;
+        if (sessionId && data.messages.length) {
+          setChatSessions(prev => {
+            const sessionIndex = prev.findIndex(s => s.sessionId === sessionId);
+            
+            if (sessionIndex >= 0) {
+              // Mise à jour d'une session existante
+              const updatedSessions = [...prev];
+              const session = {...updatedSessions[sessionIndex]};
+              
+              // Remplacer les messages
+              session.messages = data.messages;
+              
+              // Trouver la dernière activité
+              const lastMessage = data.messages[data.messages.length - 1];
+              if (lastMessage) {
+                session.lastActivity = lastMessage.timestamp;
+              }
+              
+              updatedSessions[sessionIndex] = session;
+              return updatedSessions;
+            }
+            
+            return prev;
+          });
+        }
+      } else if (data.type === 'admin_notification') {
+        if (data.notification.type === 'live_chat_request') {
+          // Un client demande un chat en direct
+          toast({
+            title: "Demande de chat en direct",
+            description: data.notification.message,
+            duration: 10000,
+          });
+          
+          // Ajouter ou mettre à jour la session
+          setChatSessions(prev => {
+            const sessionIndex = prev.findIndex(s => s.sessionId === data.notification.sessionId);
+            
+            if (sessionIndex >= 0) {
+              // Mise à jour d'une session existante
+              const updatedSessions = [...prev];
+              const session = {...updatedSessions[sessionIndex]};
+              
+              // Mettre à jour les infos client
+              session.customerInfo = data.notification.customerInfo;
+              session.lastActivity = data.notification.timestamp;
+              session.unreadCount = (session.unreadCount || 0) + 1;
+              
+              updatedSessions[sessionIndex] = session;
+              return updatedSessions;
+            } else {
+              // Nouvelle session
+              return [...prev, {
+                sessionId: data.notification.sessionId,
+                customerInfo: data.notification.customerInfo,
+                lastActivity: data.notification.timestamp,
+                unreadCount: 1,
+                messages: []
+              }];
+            }
+          });
+        }
+      }
+    };
+    
+    socket.onerror = (error) => {
+      console.error('Admin WebSocket error:', error);
+      setWsConnected(false);
+      toast({
+        title: "Erreur de connexion",
+        description: "Une erreur s'est produite avec la connexion au chat en direct. Veuillez réessayer plus tard.",
+        variant: "destructive",
+      });
+    };
+    
+    socket.onclose = () => {
+      console.log('Admin WebSocket connection closed');
+      setWsConnected(false);
+    };
+    
+    // Nettoyage à la désinscription
+    return () => {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
+    };
+  }, [activeTab, selectedChatSession, toast]);
+  
+  // Gérer l'envoi de message par l'admin
+  const handleSendAdminMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!adminChatMessage.trim() || !wsConnection || wsConnection.readyState !== WebSocket.OPEN || !selectedChatSession) {
+      return;
+    }
+    
+    try {
+      wsConnection.send(JSON.stringify({
+        type: 'chat_message',
+        payload: {
+          sessionId: selectedChatSession,
+          sender: 'admin',
+          message: adminChatMessage.trim(),
+          read: true
+        }
+      }));
+      
+      setAdminChatMessage("");
+    } catch (error) {
+      console.error('Error sending admin message:', error);
+      toast({
+        title: "Erreur d'envoi",
+        description: "Votre message n'a pas pu être envoyé. Veuillez réessayer.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  // Sélectionner une session de chat
+  const handleSelectChatSession = (sessionId: string) => {
+    setSelectedChatSession(sessionId);
+    
+    // Marquer les messages comme lus
+    setChatSessions(prev => {
+      return prev.map(session => {
+        if (session.sessionId === sessionId) {
+          return { ...session, unreadCount: 0 };
+        }
+        return session;
+      });
+    });
+    
+    // Informer le serveur que les messages ont été lus
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      wsConnection.send(JSON.stringify({
+        type: 'mark_read',
+        sessionId
+      }));
+    }
+    
+    setMode('chat');
+  };
   
   // Blog post form state
   const [blogForm, setBlogForm] = useState<BlogPostForm>({
@@ -527,6 +774,7 @@ export default function Admin() {
       }}>
         <TabsList className="mb-8">
           <TabsTrigger value="messages">Messages</TabsTrigger>
+          <TabsTrigger value="chat">Chat en direct</TabsTrigger>
           <TabsTrigger value="blog">Blog</TabsTrigger>
           <TabsTrigger value="products">Produits</TabsTrigger>
           <TabsTrigger value="analytics">Analytiques</TabsTrigger>
@@ -590,6 +838,184 @@ export default function Admin() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+        
+        {/* Chat tab */}
+        <TabsContent value="chat">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Liste des sessions */}
+            <Card className="md:col-span-1">
+              <CardHeader>
+                <CardTitle>Sessions de chat</CardTitle>
+                <CardDescription>
+                  {wsConnected ? (
+                    "Connecté au service de chat en direct"
+                  ) : (
+                    <span className="text-destructive flex items-center gap-2">
+                      <FontAwesomeIcon icon={faExclamationCircle} />
+                      Déconnecté du service de chat
+                    </span>
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {chatSessions.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    Aucune session de chat active
+                  </div>
+                ) : (
+                  <ScrollArea className="h-[600px]">
+                    <div className="space-y-2">
+                      {chatSessions
+                        .sort((a, b) => {
+                          // Trier d'abord par nombre de messages non lus, puis par date d'activité
+                          if (a.unreadCount !== b.unreadCount) {
+                            return b.unreadCount - a.unreadCount;
+                          }
+                          return new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime();
+                        })
+                        .map((session) => (
+                          <div
+                            key={session.sessionId}
+                            className={`p-3 rounded-lg cursor-pointer ${
+                              selectedChatSession === session.sessionId
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-card hover:bg-muted"
+                            } ${
+                              session.unreadCount > 0 && "border-l-4 border-destructive"
+                            }`}
+                            onClick={() => handleSelectChatSession(session.sessionId)}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="font-medium flex items-center gap-2">
+                                <FontAwesomeIcon icon={faUser} />
+                                {session.customerInfo.name || "Client"}
+                                {session.unreadCount > 0 && (
+                                  <Badge variant="destructive" className="ml-2">
+                                    {session.unreadCount} {session.unreadCount === 1 ? "nouveau" : "nouveaux"}
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="text-xs opacity-80">
+                                {formatDate(session.lastActivity)}
+                              </div>
+                            </div>
+                            
+                            <div className="mt-1 text-sm">
+                              {session.customerInfo.company && (
+                                <div className="flex items-center gap-1 mt-1">
+                                  <FontAwesomeIcon icon={faBuilding} className="opacity-70" size="xs" />
+                                  {session.customerInfo.company}
+                                </div>
+                              )}
+                              
+                              {session.customerInfo.service && (
+                                <div className="flex items-center gap-1 mt-1">
+                                  <FontAwesomeIcon icon={faComment} className="opacity-70" size="xs" />
+                                  {session.customerInfo.service}
+                                </div>
+                              )}
+                              
+                              {session.customerInfo.phone && (
+                                <div className="flex items-center gap-1 mt-1">
+                                  <FontAwesomeIcon icon={faPhone} className="opacity-70" size="xs" />
+                                  {session.customerInfo.phone}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </ScrollArea>
+                )}
+              </CardContent>
+            </Card>
+            
+            {/* Conversation */}
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <CardTitle>
+                  {selectedChatSession ? (
+                    <div className="flex items-center gap-2">
+                      <FontAwesomeIcon icon={faCommentDots} />
+                      Conversation avec{" "}
+                      {chatSessions.find(s => s.sessionId === selectedChatSession)?.customerInfo.name || "Client"}
+                    </div>
+                  ) : (
+                    "Sélectionnez une conversation"
+                  )}
+                </CardTitle>
+                {selectedChatSession && (
+                  <CardDescription>
+                    Session ID: {selectedChatSession.substring(0, 8)}...
+                  </CardDescription>
+                )}
+              </CardHeader>
+              <CardContent>
+                {!selectedChatSession ? (
+                  <div className="flex flex-col items-center justify-center h-[500px] text-muted-foreground">
+                    <FontAwesomeIcon icon={faComment} size="3x" className="mb-4 opacity-30" />
+                    <p>Sélectionnez une session de chat à gauche pour voir les messages</p>
+                  </div>
+                ) : (
+                  <>
+                    <ScrollArea className="h-[500px] pr-4">
+                      <div className="space-y-4">
+                        {chatSessions
+                          .find(s => s.sessionId === selectedChatSession)
+                          ?.messages.map((msg, idx) => (
+                            <div
+                              key={idx}
+                              className={`flex ${
+                                msg.sender === "admin" ? "justify-end" : "justify-start"
+                              }`}
+                            >
+                              <div
+                                className={`max-w-[80%] p-3 rounded-lg ${
+                                  msg.sender === "admin"
+                                    ? "bg-primary text-primary-foreground"
+                                    : msg.sender === "bot"
+                                    ? "bg-secondary text-secondary-foreground"
+                                    : "bg-muted"
+                                }`}
+                              >
+                                <div className="text-sm font-medium mb-1">
+                                  {msg.sender === "admin"
+                                    ? "Admin"
+                                    : msg.sender === "bot"
+                                    ? "Bot"
+                                    : "Client"}
+                                </div>
+                                <div className="break-words whitespace-pre-wrap">{msg.message}</div>
+                                <div className="text-xs opacity-70 text-right mt-1">
+                                  {formatDate(msg.timestamp)}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </ScrollArea>
+                    
+                    <div className="mt-4">
+                      <form onSubmit={handleSendAdminMessage} className="flex gap-2">
+                        <Input
+                          type="text"
+                          placeholder="Tapez votre message..."
+                          value={adminChatMessage}
+                          onChange={(e) => setAdminChatMessage(e.target.value)}
+                          className="flex-1"
+                        />
+                        <Button type="submit" disabled={!wsConnected || !adminChatMessage.trim()}>
+                          <FontAwesomeIcon icon={faPaperPlane} className="mr-2" />
+                          Envoyer
+                        </Button>
+                      </form>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
         
         {/* Blog tab */}
