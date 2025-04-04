@@ -1,3 +1,4 @@
+import { ref, reactive, onMounted, onUnmounted, watch, computed } from 'vue'
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -37,6 +38,50 @@ const chatSessions = ref<ChatSession[]>([])
 const selectedChatSession = ref<string | null>(null)
 const adminChatMessage = ref('')
 
+// Variables du formulaire de connexion
+const username = ref('')
+const password = ref('')
+const errorMessage = ref('')
+
+// Fonction de connexion
+// Propriété calculée pour obtenir la session sélectionnée
+const selectedSession = computed(() => {
+  return chatSessions.value.find(session => session.sessionId === selectedChatSession.value)
+})
+
+const login = async () => {
+  if (!username.value || !password.value) {
+    errorMessage.value = 'Veuillez remplir tous les champs'
+    return
+  }
+  
+  const success = await authStore.login({
+    username: username.value,
+    password: password.value
+  })
+  
+  if (!success) {
+    errorMessage.value = authStore.error || 'Erreur de connexion'
+  }
+}
+
+// Changement d'onglet
+const setActiveTab = (tab: string) => {
+  activeTab.value = tab
+  
+  // Si on passe à l'onglet de chat, établir la connexion WebSocket
+  if (tab === 'chat' && !wsConnection.value) {
+    setupWebSocketConnection()
+  }
+}
+const router = useRouter()
+const activeTab = ref('dashboard')
+const wsConnection = ref<WebSocket | null>(null)
+const wsConnected = ref(false)
+const chatSessions = ref<ChatSession[]>([])
+const selectedChatSession = ref<string | null>(null)
+const adminChatMessage = ref('')
+
 // Changement d'onglet
 const setActiveTab = (tab: string) => {
   activeTab.value = tab
@@ -48,10 +93,62 @@ const setActiveTab = (tab: string) => {
 }
 
 // Établir la connexion WebSocket
+// Établir la connexion WebSocket
 const setupWebSocketConnection = () => {
   if (wsConnection.value && wsConnection.value.readyState === WebSocket.OPEN) {
     return
   }
+  
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.host
+  const wsUrl = `${protocol}//${host}/ws`
+  
+  console.log(`Établissement de la connexion WebSocket vers ${wsUrl}`)
+  
+  try {
+    const socket = new WebSocket(wsUrl)
+    wsConnection.value = socket
+    
+    socket.onopen = () => {
+      console.log('Admin WebSocket connection established')
+      wsConnected.value = true
+      
+      // Demander toutes les sessions actives
+      socket.send(JSON.stringify({
+        type: 'admin_get_sessions'
+      }))
+    }
+    
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      
+      if (data.type === 'chat_message') {
+        // Ajouter le message à la session correspondante
+        handleChatMessage(data.message)
+      } else if (data.type === 'chat_sessions') {
+        // Réception de toutes les sessions actives
+        chatSessions.value = data.sessions
+      } else if (data.type === 'admin_notification') {
+        handleAdminNotification(data.notification)
+      }
+    }
+    
+    socket.onerror = (error) => {
+      console.error('Admin WebSocket error:', error)
+      wsConnected.value = false
+    }
+    
+    socket.onclose = () => {
+      console.log('Admin WebSocket connection closed')
+      wsConnected.value = false
+      wsConnection.value = null
+    }
+  } catch (error) {
+    console.error('Failed to establish WebSocket connection:', error)
+    wsConnected.value = false
+    wsConnection.value = null
+  }
+}
   
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsUrl = `${protocol}//${window.location.host}/ws`
@@ -241,7 +338,7 @@ watch(activeTab, (newTab) => {
       <h1 class="text-3xl md:text-4xl font-bold mb-8">Administration</h1>
       
       <!-- Formulaire de connexion -->
-      <div v-if="!isAuthenticated" class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-md">
+      <div v-if="!authStore.isAuthenticated" class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-md">
         <h2 class="text-2xl font-bold mb-6">Connexion</h2>
         
         <form @submit.prevent="login" class="space-y-4">
@@ -345,6 +442,50 @@ watch(activeTab, (newTab) => {
         </div>
         
         <div v-if="activeTab === 'analytics'" class="bg-white rounded-lg shadow p-6">
+        <div v-if="activeTab === 'chat'" class="bg-white rounded-lg shadow p-6">
+          <h2 class="text-2xl font-bold mb-4">Chat en direct</h2>
+          
+          <div v-if="!wsConnected" class="text-center py-12">
+            <div class="text-gray-500 mb-4">Connexion au service de chat en cours...</div>
+            <button @click="setupWebSocketConnection" class="btn btn-primary">
+              Reconnecter
+            </button>
+          </div>
+          
+          <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Liste des sessions -->
+            <div class="border-r border-gray-200 pr-4">
+              <h3 class="font-medium text-gray-900 mb-4">Conversations</h3>
+              
+              <div v-if="chatSessions.length === 0" class="text-gray-500 text-sm">
+                Aucune conversation active pour le moment.
+              </div>
+              
+              <div v-else class="space-y-2">
+                <div 
+                  v-for="session in chatSessions" 
+                  :key="session.sessionId" 
+                  @click="selectChatSession(session.sessionId)" 
+                  class="p-3 rounded cursor-pointer"
+                  :class="selectedChatSession === session.sessionId ? 'bg-blue-50 border-blue-500'" 
+                >
+                  <div class="flex justify-between items-start">
+                    <div>
+                      <div class="font-medium">{{ session.customerInfo.name || 'Client'}}</div>
+                      <div class="text-sm text-gray-500">{{ session.customerInfo.company }}</div>
+                    </div>
+                    <div v-if="session.unreadCount" class="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                      {{ session.unreadCount }}
+                    </div>
+                  </div>
+                  <div class="text-xs text-gray-400 mt-1">
+                    {{ formatDate(session.lastActivity) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
           <h2 class="text-2xl font-bold mb-4">Statistiques du site</h2>
           <!-- À compléter avec des graphiques et des statistiques -->
         </div>

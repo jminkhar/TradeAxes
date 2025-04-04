@@ -30,6 +30,7 @@ class WebSocketManager {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     this.url = `${protocol}//${host}${path}`;
+    console.log(`WebSocket URL initialized: ${this.url}`);;
   }
 
   /**
