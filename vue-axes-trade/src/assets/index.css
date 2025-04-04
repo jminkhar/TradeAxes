@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #2563eb;
+  --color-primary-dark: #1d4ed8;
+  --color-secondary: #f97316;
+  --color-axes: #dc2626;
+  --color-trade: #2563eb;
+}
+
+/* Définitions des couleurs personnalisées */
+.text-primary {
+  color: var(--color-primary);
+}
+
+.text-primary-dark {
+  color: var(--color-primary-dark);
+}
+
+.text-secondary {
+  color: var(--color-secondary);
+}
+
+.bg-primary {
+  background-color: var(--color-primary);
+}
+
+.bg-primary-dark {
+  background-color: var(--color-primary-dark);
+}
+
+.bg-secondary {
+  background-color: var(--color-secondary);
+}
+
+.hover\:bg-primary:hover {
+  background-color: var(--color-primary);
+}
+
+.hover\:bg-primary-dark:hover {
+  background-color: var(--color-primary-dark);
+}
+
+.hover\:text-primary:hover {
+  color: var(--color-primary);
+}
+
+.hover\:text-primary-dark:hover {
+  color: var(--color-primary-dark);
+}
+
+.border-primary {
+  border-color: var(--color-primary);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  @apply text-gray-800 bg-white;
+}
+
+/* Accessibilité - Contraste élevé */
+.text-axes {
+  color: var(--color-axes);
+}
+
+.text-trade {
+  color: var(--color-trade);
+}
