@@ -7,6 +7,7 @@ import Home from "@/pages/Home";
 import Blog from "@/pages/Blog";
 import Products from "@/pages/Products";
 import Admin from "@/pages/Admin";
+import LoginPage from "@/pages/login-page";
 // import LiveChat from "@/components/LiveChat";
 import LiveChatComponent from "@/components/ui/LiveChatComponent";
 import { useEffect } from "react";
@@ -46,6 +47,7 @@ function Router() {
         <Route path="/blog/:slug?" component={Blog} />
         <Route path="/products/:slug?" component={Products} />
         <Route path="/admin" component={Admin} />
+        <Route path="/login" component={LoginPage} />
         <Route component={NotFound} />
       </Switch>
     </>
