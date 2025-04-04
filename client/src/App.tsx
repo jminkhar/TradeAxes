@@ -7,7 +7,8 @@ import Home from "@/pages/Home";
 import Blog from "@/pages/Blog";
 import Products from "@/pages/Products";
 import Admin from "@/pages/Admin";
-import LiveChat from "@/components/LiveChat";
+// import LiveChat from "@/components/LiveChat";
+import LiveChatComponent from "@/components/ui/LiveChatComponent";
 import { useEffect } from "react";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -55,7 +56,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Router />
-      <LiveChat />
+      <LiveChatComponent />
       <Toaster />
     </QueryClientProvider>
   );
